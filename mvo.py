@@ -92,6 +92,10 @@ class FlowBasedMonocularVisualOdometry:
         self.max_angle = max_angle
         self.min_triangulated_points = min_triangulated_points
 
+        # collection for the estimated trajectory
+        self.keyframes = []
+        self.poses = []
+
     def detect_kps(self, frame: np.ndarray, cell_size: int = 128, max_per_cell: int = 150):
         """Detect keypoints in a given frame in an uniformly distributed manner
 
@@ -341,6 +345,131 @@ class FlowBasedMonocularVisualOdometry:
 
         return all_angles
 
-    def optimize(self):
+    def estimate(self, frames: np.ndarray):
+        """Estimate the camera poses with a series of frames
 
-        pass
+        Parameters
+        ----------
+        frames : np.ndarray
+            the frames of a video
+        """
+
+        # initialization
+        self.poses = []
+        self.keyframes = [0]
+
+        # set up the first frame
+        last_frame, last_kps = frames[0], self.detect_kps(frames[0])
+
+        print(f'initial set of keypoints: {len(last_kps)}')
+        # show log
+        verbose = 0
+
+        for i in tqdm(range(1, len(frames))):
+
+            if (i - self.keyframes[-1]) >= self.max_frame_interval:
+
+                last_frame, last_kps = frames[i -
+                                              1], self.detect_kps(frames[i - 1])
+
+                self.keyframes.append(i - 1)
+
+                if verbose:
+                    print("change reference frame!")
+
+            curr_frame = frames[i]
+
+            curr_kps = self.track_kps(last_frame, last_kps, curr_frame)
+
+            # print(f'tracked size: {(~np.isnan(curr_kps[:, 0])).sum()}')
+
+            if (~np.isnan(curr_kps[:, 0])).sum() <= 8:
+
+                # < 8 or < 5 would cause pose estimation error
+                last_frame, last_kps = frames[i -
+                                              1], self.detect_kps(frames[i - 1])
+
+                curr_kps = self.track_kps(last_frame, last_kps, curr_frame)
+
+            # estimate the initial pose
+            R, T, inliers = self.estimate_pose(last_kps, curr_kps)
+
+            if R is None:
+
+                if verbose:
+                    print(f'unable to estimate pose at frame {i}')
+
+                self.poses.append([np.eye(3), np.zeros((3, 1))])
+
+                continue
+
+            if inliers.sum() < 8:
+
+                if verbose:
+                    print(f'insufficient inliners for pose at frame {i}')
+
+                self.poses.append([np.eye(3), np.zeros((3, 1))])
+
+                continue
+
+            # triangulation
+            kps_3d = self.triangulate_3d_landmarks(last_kps,
+                                                   np.concatenate(
+                                                       [np.eye(3), np.zeros((3, 1))], axis=1),
+                                                   curr_kps,
+                                                   np.concatenate(
+                                                       [R, T], axis=1),
+                                                   inliers)
+
+            if kps_3d is None:
+
+                if verbose:
+                    print(f'unable to trianguate at frame {i}')
+
+                self.poses.append([np.eye(3), np.zeros((3, 1))])
+
+                continue
+
+            # angles
+            angles = self.get_triangulation_angles(kps_3d, R, T)
+
+            if np.nanmedian(angles) < self.min_angle:
+
+                if verbose:
+                    print(
+                        f'at frame {i}, median angle {np.nanmedian(angles)} is less than {self.min_angle}')
+
+                self.poses.append([np.eye(3), np.zeros((3, 1))])
+
+                continue
+
+            valid_angles = np.where((angles > self.min_angle) & (
+                angles <= self.max_angle), angles, np.ones_like(angles) * np.nan)
+
+            if (~np.isnan(valid_angles)).sum() < self.min_triangulated_pts:
+
+                if verbose:
+                    print(
+                        f'at frame {i}, not enough 3D pts {(~np.isnan(valid_angles)).sum()} is less than {self.min_triangulated_pts}')
+
+                self.poses.append([np.eye(3), np.zeros((3, 1))])
+
+                continue
+
+            # found an adequate frame for initialization
+            self.poses.append([R.copy(), T.copy()])
+            self.keyframes.append(i)
+
+            # redetect
+            if (~np.isnan(curr_kps[:, 0])).sum() < self.min_num_kps_to_track:
+
+                if verbose:
+                    print(
+                        f"at frame {i} => less than {self.min_num_kps_to_track} (current {(~np.isnan(curr_kps[:, 0])).sum()})=> Add new key frame!")
+
+                # re-detect
+                curr_kps = self.detect_kps(curr_frame)
+
+            # update last frame & last kps
+            last_frame = curr_frame
+            last_kps = curr_kps
