@@ -1,20 +1,27 @@
 # Video Configuration
 video:
-  video_path: pipeline-test/example.mp4
+
+  video_path: /nas_data/user/chunfu/pipeline-test/example.mp4
+  start_time: # optional (in (s))
+  end_time:  # optional  (in (s), if specified, should be > 1)
 
 # Monocular Visual Odometry Configuration
 mvo:
+  
   # camera intrinsics
   fx: 1304.728954148559
   fy: 1304.2418122900801
   cx: 946.9610479577617
   cy: 535.7368433856345
+  
   # optical flow parameters
   max_disp_to_track: 5
   min_num_kps_to_track: 3000
   track_window_size: !!python/tuple [12, 12]
+  
   # criteria for triangulability 
   min_angle: 1
   max_angle: 120
   min_triangulated_points: 20
   max_frame_interval: 5
+

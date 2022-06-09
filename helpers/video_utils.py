@@ -4,7 +4,7 @@ import cv2
 from tqdm import tqdm
 
 
-def video_to_frames(video_path: str):
+def video_to_frames(video_path: str, export_directory: str = None):
     """ Export video to frames, which creates a folder ('frames') in the same folder containing this video.
     Moreover, a txt file containing the frame rate is generated in the same folder.
 
@@ -15,8 +15,10 @@ def video_to_frames(video_path: str):
 
     """
 
-    # get parent directory
-    parent_path = os.path.dirname(video_path)
+    if export_directory is None:
+
+        # use parent directory as export_directory
+        export_directory = os.path.dirname(video_path)
 
     # open the video using opencv
     cap = cv2.VideoCapture(video_path)
@@ -25,13 +27,13 @@ def video_to_frames(video_path: str):
     nframes = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # write frame rate under the same parent directory
-    with open(os.path.join(parent_path, "fps.txt"), "w") as f:
+    with open(os.path.join(export_directory, "fps.txt"), "w") as f:
 
         f.write(str(fps))
 
     # create folder for frames if not exist
     # the folder `frame` is also under the same parent directory
-    frame_folder = os.path.join(parent_path, "frames")
+    frame_folder = os.path.join(export_directory, "frames")
 
     if not os.path.isdir(frame_folder):
 
@@ -85,20 +87,38 @@ def load_frames(video_folder: str, start_time: int, end_time: int):
     if not fps:
         raise ValueError('No fps is found!')
 
-    start_fr = int(start_time * fps)
-    end_fr = int(end_time * fps)
+    # check the start_time & end_time
+    if start_time is None:
 
-    frames = []
+        start_time = 0
 
-    print(f'loading video frames from {start_fr} to {end_fr}')
+    if end_time is not None:
 
-    for i_frame in tqdm(range(start_fr, end_fr)):
+        start_fr = int(start_time * fps)
+        end_fr = int(end_time * fps)
 
-        frame_path = os.path.join(
-            video_folder, 'frames', f'frame_{i_frame}.jpg')
+        frames = []
 
-        img = cv2.imread(frame_path)
+        print(f'loading video frames from {start_fr} to {end_fr} ... ')
 
-        frames.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        for i_frame in tqdm(range(start_fr, end_fr)):
+
+            frame_path = os.path.join(
+                video_folder, 'frames', f'frame_{i_frame}.jpg')
+
+            img = cv2.imread(frame_path)
+
+            frames.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+    else:
+
+        print(f'loading all the video frames ... ')
+        # no end_time specified
+        # use all the frames
+        frames = sorted([os.path.join(video_folder, 'frames', fn) for fn in tqdm(os.listdir(
+            os.path.join(video_folder, 'frames'))) if ".jpg" in fn])
+
+        frames = [cv2.cvtColor(cv2.imread(fn), cv2.COLOR_BGR2RGB)
+                  for fn in tqdm(frames)]
 
     return frames, fps

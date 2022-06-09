@@ -5,7 +5,7 @@ from scipy.interpolate import splprep, splev
 from scipy.ndimage import gaussian_filter1d
 from scipy.spatial.transform import Rotation
 
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 
 class FlowBasedMonocularVisualOdometry:
@@ -361,7 +361,7 @@ class FlowBasedMonocularVisualOdometry:
         # set up the first frame
         last_frame, last_kps = frames[0], self.detect_kps(frames[0])
 
-        print(f'initial set of keypoints: {len(last_kps)}')
+        # print(f'initial set of keypoints: {len(last_kps)}')
         # show log
         verbose = 0
 
@@ -446,11 +446,11 @@ class FlowBasedMonocularVisualOdometry:
             valid_angles = np.where((angles > self.min_angle) & (
                 angles <= self.max_angle), angles, np.ones_like(angles) * np.nan)
 
-            if (~np.isnan(valid_angles)).sum() < self.min_triangulated_pts:
+            if (~np.isnan(valid_angles)).sum() < self.min_triangulated_points:
 
                 if verbose:
                     print(
-                        f'at frame {i}, not enough 3D pts {(~np.isnan(valid_angles)).sum()} is less than {self.min_triangulated_pts}')
+                        f'at frame {i}, not enough 3D pts {(~np.isnan(valid_angles)).sum()} is less than {self.min_triangulated_points}')
 
                 self.poses.append([np.eye(3), np.zeros((3, 1))])
 
@@ -473,3 +473,78 @@ class FlowBasedMonocularVisualOdometry:
             # update last frame & last kps
             last_frame = curr_frame
             last_kps = curr_kps
+
+    def get_smoothed_poses(self):
+        """Smooth the estimated camera poses by applying gaussian filters on the poses and fitting spline curves to the trajectory.
+
+        Returns
+        -------
+        [[R, T]]
+            each [R, T]: camera pose, R (3, 3), T (3, 1)
+        """
+
+        # self.poses
+        Rs = [self.poses[i][0] for i in range(len(self.poses))]
+        Ts = [self.poses[i][1] for i in range(len(self.poses))]
+
+        # init estimated R of the world
+        est_R = np.eye(3)
+
+        # smooth R (as quaternion) at first
+        camera_Rs = []
+
+        for R in Rs:
+
+            est_R = est_R @ R.T
+
+            camera_Rs.append(Rotation.from_matrix(est_R.copy()).as_quat())
+
+        camera_Rs = np.array(camera_Rs)
+
+        smoothed_Rs = []
+
+        # apply gaussian filter on each axis
+        for i in range(camera_Rs.shape[1]):
+
+            smoothed_Rs.append(gaussian_filter1d(camera_Rs[:, i], sigma=2))
+
+        # transpose back to (N, 4)
+        smoothed_Rs = np.array(smoothed_Rs).T
+
+        smoothed_Rs = [Rotation.from_quat(
+            smoothed_Rs[i]).as_matrix() for i in range(len(smoothed_Rs))]
+
+        # smooth the whole trajectory
+        camera_Ts = []
+
+        est_T = np.zeros((3, 1))
+
+        for R, T in zip(smoothed_Rs, Ts):
+
+            est_T += R @ (-T)
+
+            # adding a small noise for splprep algorithm
+            camera_Ts.append(est_T.copy() + np.random.random((3, 1)) * 1e-6)
+
+        # (N, 3, 1)
+        camera_Ts = np.array(camera_Ts)
+
+        tck, u = splprep(
+            [camera_Ts[:, 0, 0], camera_Ts[:, 1, 0], camera_Ts[:, 2, 0]], k=5)
+
+        smoothed_camera_Ts = np.array(splev(u, tck)).T
+
+        # final smoothed trajectory
+        # apply gaussian filter to make the curve less curvy
+        f_smoothed_camera_Ts = []
+
+        for i in range(smoothed_camera_Ts.shape[1]):
+
+            f_smoothed_camera_Ts.append(gaussian_filter1d(
+                smoothed_camera_Ts[:, i], sigma=10))
+
+        smoothed_camera_Ts = np.array(f_smoothed_camera_Ts).T
+
+        return [[smoothed_Rs[i].T,
+                 - smoothed_Rs[i].T @ smoothed_camera_Ts[i][:, np.newaxis]]
+                for i in range(len(smoothed_Rs))]
