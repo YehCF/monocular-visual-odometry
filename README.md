@@ -28,6 +28,4 @@ This pipeline takes in a yaml configuration file. There is an example in `config
 
 ### Demo
 ---
-- https://user-images.githubusercontent.com/10951260/172912176-922246b9-0503-473b-8319-cb939d00eaf7.mp4
-- More examples can be found [here](https://drive.google.com/drive/u/3/folders/1jgyRffiWhCtqDzBIIqBxWkthTDX22r0A)
-- 
+- The examples can be found [here](https://drive.google.com/drive/u/3/folders/1jgyRffiWhCtqDzBIIqBxWkthTDX22r0A)
