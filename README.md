@@ -4,7 +4,7 @@ This repository contains the monocular visual odometry algorithms for DTA. The m
 ### Install
 ---
 * `$git@github.com:PerceptiveAutomata/monocular-visual-odometry.git`
-* $conda activate perceptive3
+* `$conda activate perceptive3`
   *  no additional packages needed beyond perceptive3
 
 ### Video Preparation
