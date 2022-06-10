@@ -10,7 +10,7 @@ def video_to_frames(video_path: str, export_directory: str = None):
 
     Parameters
     ----------
-    video_path : [str]
+    video_path : str
         the path of the video
 
     """
@@ -49,7 +49,8 @@ def video_to_frames(video_path: str, export_directory: str = None):
             break
 
         # write each frame into the folder
-        cv2.imwrite(os.path.join(frame_folder, f'frame_{i_frame}.jpg'), frame)
+        cv2.imwrite(os.path.join(
+            frame_folder, 'frame_%06d.jpg' % i_frame), frame)
 
 
 def load_frames(video_folder: str, start_time: int, end_time: int):
@@ -57,18 +58,18 @@ def load_frames(video_folder: str, start_time: int, end_time: int):
 
     Parameters
     ----------
-    video_folder : [str]
+    video_folder : str
         the folder where the video's 'frames' subfolder is
-    start_time : [int]
+    start_time : int
         the start time to load
-    end_time : [int]
+    end_time : int
         the end time to load
 
     Returns
     -------
-    frames : [list[np.ndarray]]
-        a list of loaded frames
-    fps : [float]
+    frames : [str], shape (N,)
+        a list of (sorted) filenames
+    fps : float
         the original frames per second of the video
     """
 
@@ -104,11 +105,9 @@ def load_frames(video_folder: str, start_time: int, end_time: int):
         for i_frame in tqdm(range(start_fr, end_fr)):
 
             frame_path = os.path.join(
-                video_folder, 'frames', f'frame_{i_frame}.jpg')
+                video_folder, 'frames', 'frame_%06d.jpg' % i_frame)
 
-            img = cv2.imread(frame_path)
-
-            frames.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            frames.append(frame_path)
 
     else:
 
@@ -118,7 +117,23 @@ def load_frames(video_folder: str, start_time: int, end_time: int):
         frames = sorted([os.path.join(video_folder, 'frames', fn) for fn in tqdm(os.listdir(
             os.path.join(video_folder, 'frames'))) if ".jpg" in fn])
 
-        frames = [cv2.cvtColor(cv2.imread(fn), cv2.COLOR_BGR2RGB)
-                  for fn in tqdm(frames)]
-
     return frames, fps
+
+
+def get_image(filename):
+    """Read the image data from the filename using opencv
+
+    Parameters
+    ----------
+    filename : str
+        filename of the frame
+
+    Returns
+    -------
+    np.ndarray
+        shape (height, width, 3)
+    """
+
+    img = cv2.imread(filename)
+
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)

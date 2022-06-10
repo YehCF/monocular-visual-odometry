@@ -4,6 +4,7 @@ import argparse
 import shutil
 import yaml
 import subprocess
+import numpy as np
 
 from tqdm import tqdm
 
@@ -11,8 +12,10 @@ from mvo import FlowBasedMonocularVisualOdometry
 
 from helpers.video_utils import video_to_frames
 from helpers.video_utils import load_frames
+from helpers.video_utils import get_image
 from helpers.reproject_utils import get_projected_trajectory_from_poses
 from helpers.reproject_utils import export_projected_frame
+from helpers.reproject_utils import check_trajectory
 
 
 def main(config: str):
@@ -61,8 +64,7 @@ def main(config: str):
         'start_time', None), end_time=cfg['video'].get('end_time', None))
 
     # get image height & width
-    frame_height = frames[0].shape[0]
-    frame_width = frames[0].shape[1]
+    frame_height, frame_width = get_image(frames[0]).shape[:2]
 
     # add height & width info into cfg['mvo']
     cfg['mvo']['frame_height'] = frame_height
@@ -77,6 +79,9 @@ def main(config: str):
 
     # poses : [[R, T], ...]
     poses = mvo.get_smoothed_poses()
+
+    # check poses
+    check_trajectory(poses, fps)
 
     # render & export the frame
     export_directory = os.path.join(
@@ -98,14 +103,14 @@ def main(config: str):
                                                                    mvo.K)
 
         export_projected_frame(i_frame,
-                               frames[i_frame],
+                               get_image(frames[i_frame]),
                                projected_trajectory,
                                export_directory=export_directory)
 
     # run ffmpeg to make the video
     os.chdir(export_directory)
     subprocess.call(['ffmpeg', '-framerate',
-                    f'{fps}', '-i', 'frame_%04d.jpg', f'../overlaid-{video_fn}.mp4'])
+                    f'{fps}', '-i', 'frame_%06d.jpg', f'../overlaid-{video_fn}.mp4'])
 
 
 if __name__ == '__main__':

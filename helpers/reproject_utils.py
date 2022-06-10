@@ -8,7 +8,7 @@ def get_trajectory_from_poses(poses: list,
     """Estimate the trajectory with respective to the given first camera pose
 
     Input:
-        poses: [a list of [R, T]], R => (3, 3), T => (3, 1)
+        poses: [[R, T]], R => (3, 3), T => (3, 1)
         camera_offset: [np.ndarray], shape (3, 1)
 
     Parameters
@@ -20,7 +20,7 @@ def get_trajectory_from_poses(poses: list,
 
     Returns
     -------
-    [np.ndarray]
+    np.ndarray
         the coordinates of the trajectory in (x, y, z) with respective to the reference frame (poses[0])
     """
 
@@ -154,5 +154,42 @@ def export_projected_frame(i_frame: int,
 
     export_img = cv2.cvtColor(export_img, cv2.COLOR_RGB2BGR)
 
-    cv2.imwrite(os.path.join(export_directory, "frame_%04d.jpg" %
+    cv2.imwrite(os.path.join(export_directory, 'frame_%06d.jpg' %
                 i_frame), export_img, [cv2.IMWRITE_JPEG_QUALITY, 100])
+
+
+def check_trajectory(poses: np.ndarray, fps: float):
+    """Check the trajectory to see if there is any large movement in the time window.
+    This quantizes the number of jerks in the time window (fps).
+
+    Parameters
+    ----------
+    poses : [[R, T]]
+        the poses, each pose is the camera pose
+    fps : float
+        the fps of this video
+    """
+
+    trajectory = []
+
+    for R, T in poses:
+
+        trajectory.append(R.T @ (-T))
+
+    # (N, 3, 1) to (N, 3)
+    trajectory = np.array(trajectory)[..., 0]
+
+    n_jerks = []
+
+    for idx in range(len(trajectory) - int(fps)):
+
+        tj = np.linalg.norm(trajectory[idx: idx + int(fps)], axis=1)
+
+        # jerk
+        jerk = np.gradient(np.gradient(tj)) > 0
+
+        n_jerk = jerk[1:] != jerk[:-1]
+
+        n_jerks.append(n_jerk.sum())
+
+    print(f'average number of jerks: {np.mean(n_jerks)} (n) per second ! ')

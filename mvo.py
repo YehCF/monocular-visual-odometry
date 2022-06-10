@@ -7,6 +7,8 @@ from scipy.spatial.transform import Rotation
 
 from tqdm import tqdm
 
+from helpers.video_utils import get_image
+
 
 class FlowBasedMonocularVisualOdometry:
 
@@ -24,7 +26,14 @@ class FlowBasedMonocularVisualOdometry:
                  min_triangulated_points: int = 20,
                  max_frame_interval: int = 5,
                  track_window_size: tuple = (12, 12)):
-        """The optical-flow-based monocular visual odometry method
+        """The optical-flow-based monocular visual odometry method.
+        Steps: 
+        - Extract the keypoints from i-th frame using FAST feature detector.
+        - Keep track of these keypoints for the next few frames using Lucas-Kanade Algorithm (Optical Flow).
+        - Estimate the camera pose for these consecutive two frames.
+        - Reject the current frame depending on the triangulability.
+        - Change the last frame if too many current frames are rejected.
+        - Update the last frame with the current frame.
 
         Parameters
         ----------
@@ -97,7 +106,9 @@ class FlowBasedMonocularVisualOdometry:
         self.poses = []
 
     def detect_kps(self, frame: np.ndarray, cell_size: int = 128, max_per_cell: int = 150):
-        """Detect keypoints in a given frame in an uniformly distributed manner
+        """Detect keypoints in a given frame in an uniformly distributed manner.
+        Basically, the image (frame) is split into the cells 
+        and then the feature detector is applied on each cell separately.
 
         Parameters
         ----------
@@ -159,13 +170,13 @@ class FlowBasedMonocularVisualOdometry:
 
         Parameters
         ----------
-        last_frame : [np.ndarray]
-        last_kps : [np.ndarray], shape (N, 2)
-        curr_frame : [np.ndarray]
+        last_frame : np.ndarray
+        last_kps : np.ndarray, shape (N, 2)
+        curr_frame : np.ndarray
 
         Returns
         -------
-        curr_kps : [np.ndarray], shape (N, 2)
+        curr_kps : np.ndarray, shape (N, 2)
         """
 
         valid_idx = ~np.isnan(last_kps[:, 0])
@@ -177,10 +188,11 @@ class FlowBasedMonocularVisualOdometry:
                                                            None,
                                                            **self.lk_params)
 
-        # verification - 1 : error should be within the range
+        # verification - 1 : error should be within the range (max_disp_to_track)
         st[(err > self.max_disp_to_track).squeeze()] = 0
 
         # verification - 2 : coordinate boundary [0, self.height - 1], [0, self.width - 1]
+        # discard the keypoints on the boundary
         st[(valid_curr_kps[:, 0] <= 0) | (valid_curr_kps[:, 1] <= 0)] = 0
         st[(valid_curr_kps[:, 0] >= self.width - 1) |
             (valid_curr_kps[:, 1] >= self.height - 1)] = 0
@@ -202,20 +214,20 @@ class FlowBasedMonocularVisualOdometry:
 
         Parameters
         ----------
-        last_kps : [np.ndarray], shape (N, 2)
-        curr_kps : [np.ndarray], shape (N, 2)
+        last_kps : np.ndarray, shape (N, 2)
+        curr_kps : np.ndarray, shape (N, 2)
 
         Returns
         -------
-        R : [np.ndarray], shape (3, 3)
-        T : [np.ndarray], shape (3, 1)
-        all_inliers : [np.ndarray], shape (N,)
+        R : np.ndarray, shape (3, 3)
+        T : np.ndarray, shape (3, 1)
+        all_inliers : np.ndarray, shape (N,)
         """
 
         valid_idx = ~np.isnan(curr_kps[:, 0])
 
         # note:
-        # mask : 0 & 255
+        # mask : 0 or 255
         E, mask = cv2.findEssentialMat(last_kps[valid_idx],
                                        curr_kps[valid_idx],
                                        pp=self.cxy,
@@ -225,7 +237,7 @@ class FlowBasedMonocularVisualOdometry:
                                        threshold=0.1)
 
         # get the camera pose (of current frame)
-        # inliers: 0 & 1
+        # inliers: 0 or 1
         _, R, T, inliers = cv2.recoverPose(E,
                                            last_kps[valid_idx],
                                            curr_kps[valid_idx],
@@ -251,20 +263,20 @@ class FlowBasedMonocularVisualOdometry:
 
         Parameters
         ----------
-        last_kps : [np.ndarray], shape (N, 2)
-        last_cam_pose : [np.ndarray], shape (3, 4)
-            last_cam_poses[:3, :3] - the rotation matrix 
+        last_kps : np.ndarray, shape (N, 2)
+        last_cam_pose : np.ndarray, shape (3, 4)
+            last_cam_poses[:3, :3] - the rotation matrix
             last_cam_poses[:3, [3]] - the translation
         curr_kps : [np.ndarray], shape (N, 2)
-        curr_cam_pose : [np.ndarray], shape (3, 4)
+        curr_cam_pose : np.ndarray, shape (3, 4)
             curr_cam_poses[:3, :3] - the rotation matrix
             curr_cam_poses[:3, [3]] - the translation
-        inliers : [np.ndarray], shape (N,)
+        inliers : np.ndarray, shape (N,)
             the inliers during the estimation of essential matrix
 
         Returns
         -------
-        kps_3d : [np.ndarray], shape (N, 3)
+        kps_3d : np.ndarray, shape (N, 3)
             the triangulated 3d points
         """
 
@@ -279,14 +291,17 @@ class FlowBasedMonocularVisualOdometry:
 
             return None
 
+        # shape (N, 2)
         valid_last_kps = last_kps[mask]
         valid_curr_kps = curr_kps[mask]
 
         n_valids = valid_last_kps.shape[0]
 
+        # calculate the inverse of camera intrinsics
         inv_K = np.linalg.inv(self.K)
 
-        # normalized / calibrated points: (3, n_valids)
+        # get normalized / calibrated points: (3, n_valids)
+        # (3, N) = (3, 3) @ (3, N)
         norm_last_kps = inv_K @ (np.concatenate([valid_last_kps, np.ones((n_valids, 1))],
                                                 axis=1).T)
         norm_curr_kps = inv_K @ (np.concatenate([valid_curr_kps, np.ones((n_valids, 1))],
@@ -298,10 +313,10 @@ class FlowBasedMonocularVisualOdometry:
                                                norm_curr_kps[:2])
 
         # homogeneous points to 3d points
+        # output shape (N, 3)
         valid_kps_3d = cv2.convertPointsFromHomogeneous(valid_kps_homo.T)
 
         # make sure triangulation is good
-
         kps_3d = np.ones((curr_kps.shape[0], 3)) * np.nan
         kps_3d[mask] = valid_kps_3d.squeeze()
 
@@ -345,13 +360,13 @@ class FlowBasedMonocularVisualOdometry:
 
         return all_angles
 
-    def estimate(self, frames: np.ndarray):
-        """Estimate the camera poses with a series of frames
+    def estimate(self, frames: list):
+        """_summary_
 
         Parameters
         ----------
-        frames : np.ndarray
-            the frames of a video
+        frames : list
+            a list of strs, each one is the filename of the frame
         """
 
         # initialization
@@ -359,7 +374,8 @@ class FlowBasedMonocularVisualOdometry:
         self.keyframes = [0]
 
         # set up the first frame
-        last_frame, last_kps = frames[0], self.detect_kps(frames[0])
+        last_frame = get_image(frames[0])
+        last_kps = self.detect_kps(last_frame)
 
         # print(f'initial set of keypoints: {len(last_kps)}')
         # show log
@@ -369,15 +385,15 @@ class FlowBasedMonocularVisualOdometry:
 
             if (i - self.keyframes[-1]) >= self.max_frame_interval:
 
-                last_frame, last_kps = frames[i -
-                                              1], self.detect_kps(frames[i - 1])
+                last_frame = get_image(frames[i - 1])
+                last_kps = self.detect_kps(last_frame)
 
                 self.keyframes.append(i - 1)
 
                 if verbose:
                     print("change reference frame!")
 
-            curr_frame = frames[i]
+            curr_frame = get_image(frames[i])
 
             curr_kps = self.track_kps(last_frame, last_kps, curr_frame)
 
@@ -386,8 +402,8 @@ class FlowBasedMonocularVisualOdometry:
             if (~np.isnan(curr_kps[:, 0])).sum() <= 8:
 
                 # < 8 or < 5 would cause pose estimation error
-                last_frame, last_kps = frames[i -
-                                              1], self.detect_kps(frames[i - 1])
+                last_frame = get_image(frames[i - 1])
+                last_kps = self.detect_kps(last_frame)
 
                 curr_kps = self.track_kps(last_frame, last_kps, curr_frame)
 
@@ -476,11 +492,12 @@ class FlowBasedMonocularVisualOdometry:
 
     def get_smoothed_poses(self):
         """Smooth the estimated camera poses by applying gaussian filters on the poses and fitting spline curves to the trajectory.
+        Note: the camera poses in self.poses are the relative camera poses between the consecutive two frames.
 
         Returns
         -------
         [[R, T]]
-            each [R, T]: camera pose, R (3, 3), T (3, 1)
+            each [R, T]: camera pose (world to camera), R (3, 3), T (3, 1)
         """
 
         # self.poses
@@ -499,6 +516,7 @@ class FlowBasedMonocularVisualOdometry:
 
             camera_Rs.append(Rotation.from_matrix(est_R.copy()).as_quat())
 
+        # shape (N, 4)
         camera_Rs = np.array(camera_Rs)
 
         smoothed_Rs = []
@@ -508,7 +526,7 @@ class FlowBasedMonocularVisualOdometry:
 
             smoothed_Rs.append(gaussian_filter1d(camera_Rs[:, i], sigma=2))
 
-        # transpose back to (N, 4)
+        # (4, N) => transpose back to (N, 4)
         smoothed_Rs = np.array(smoothed_Rs).T
 
         smoothed_Rs = [Rotation.from_quat(
@@ -517,6 +535,7 @@ class FlowBasedMonocularVisualOdometry:
         # smooth the whole trajectory
         camera_Ts = []
 
+        # initialize the translation vector with respect to the world coordinate
         est_T = np.zeros((3, 1))
 
         for R, T in zip(smoothed_Rs, Ts):
@@ -545,6 +564,7 @@ class FlowBasedMonocularVisualOdometry:
 
         smoothed_camera_Ts = np.array(f_smoothed_camera_Ts).T
 
+        # note: convert back to camera pose
         return [[smoothed_Rs[i].T,
                  - smoothed_Rs[i].T @ smoothed_camera_Ts[i][:, np.newaxis]]
                 for i in range(len(smoothed_Rs))]
