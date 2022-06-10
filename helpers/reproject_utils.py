@@ -181,15 +181,18 @@ def check_trajectory(poses: np.ndarray, fps: float):
 
     n_jerks = []
 
-    for idx in range(len(trajectory) - int(fps)):
+    duration = int(fps) * 10
 
-        tj = np.linalg.norm(trajectory[idx: idx + int(fps)], axis=1)
+    for idx in range(max(1, len(trajectory) - duration)):
+
+        tj = np.linalg.norm(trajectory[idx: idx + duration], axis=1)
 
         # jerk
-        jerk = np.gradient(np.gradient(tj)) > 0
+        jerk = np.gradient(np.gradient(np.gradient(tj))) > 0
 
         n_jerk = jerk[1:] != jerk[:-1]
 
         n_jerks.append(n_jerk.sum())
 
-    print(f'average number of jerks: {np.mean(n_jerks)} (n) per second ! ')
+    print(
+        f'average number of jerks: {np.mean(n_jerks)} (n) per second & std : {np.std(n_jerks)} ! ')
