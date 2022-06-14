@@ -15,7 +15,8 @@ from helpers.video_utils import load_frames
 from helpers.video_utils import get_image
 from helpers.reproject_utils import get_projected_trajectory_from_poses
 from helpers.reproject_utils import export_projected_frame
-from helpers.reproject_utils import check_trajectory
+from helpers.reproject_utils import quantify_jerk
+from helpers.reproject_utils import quantify_projected_jerk
 
 
 def main(config: str):
@@ -80,8 +81,9 @@ def main(config: str):
     # poses : [[R, T], ...]
     poses = mvo.get_smoothed_poses()
 
-    # check poses
-    check_trajectory(poses, fps)
+    # quantify jerk of the trajectory in each window (10s)
+    # this is applied in the 3d trajectory
+    # n_jerks = quantify_jerk(poses, fps)
 
     # render & export the frame
     export_directory = os.path.join(
@@ -99,13 +101,15 @@ def main(config: str):
 
         end_frame = i_frame + 10 * int(fps)
 
-        projected_trajectory = get_projected_trajectory_from_poses(poses[i_frame:end_frame].copy(),
-                                                                   mvo.K)
+        projected_trajectory, mean_jerk = get_projected_trajectory_from_poses(poses[i_frame:end_frame].copy(),
+                                                                              mvo.K)
 
         export_projected_frame(i_frame,
                                get_image(frames[i_frame]),
                                projected_trajectory,
-                               export_directory=export_directory)
+                               n_jerk=mean_jerk,
+                               export_directory=export_directory,
+                               jerk_threshold=0.1)
 
     # run ffmpeg to make the video
     os.chdir(export_directory)

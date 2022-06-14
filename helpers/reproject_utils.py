@@ -66,8 +66,10 @@ def get_projected_trajectory_from_poses(poses: list,
 
     Returns
     -------
-    [np.ndarray]
+    np.ndarray
         the coordinates of the backprojected trajectory with respective to the reference frame (poses[0])
+    float
+        the smoothness (mean number of jerks) in this projected trajectory
     """
 
     trajectory = get_trajectory_from_poses(
@@ -77,6 +79,9 @@ def get_projected_trajectory_from_poses(poses: list,
 
     projected_trajectory = projected_trajectory[:,
                                                 :2] / (projected_trajectory[:, [2]] + 1e-10)
+
+    # calculate the jerk of the whole projected trajectory
+    mean_jerk = quantify_projected_jerk(projected_trajectory)
 
     if bounded:
 
@@ -92,17 +97,19 @@ def get_projected_trajectory_from_poses(poses: list,
 
         projected_trajectory = np.array(pt)
 
-    return projected_trajectory
+    return projected_trajectory, mean_jerk
 
 
 def export_projected_frame(i_frame: int,
                            frame: np.ndarray,
                            projected_trajectory: np.ndarray,
+                           n_jerk: int = -1,
                            export_directory: str = "temp",
                            from_color: tuple = (255, 51, 51),
                            to_color: tuple = (255, 204, 204),
                            from_thickness: int = 25,
-                           to_thickness: int = 5):
+                           to_thickness: int = 5,
+                           jerk_threshold=10):
     """export the frame with backprojected trajectory on it
 
     Parameters
@@ -113,6 +120,8 @@ def export_projected_frame(i_frame: int,
         the frame, shape (height, width, 3)
     projected_trajectory : np.ndarray
         the coordinates, shape (N, 2)
+    n_jerk : int, optional
+        the jerk of the trajectory with respect to this frame
     export_directory : str, optional
         the directory to export the overlaid frame, by default "temp"
     from_color : tuple, optional
@@ -123,6 +132,9 @@ def export_projected_frame(i_frame: int,
         the thickness of the trajectory, by default 25
     to_thickness : int, optional
         the thickness of the trajectory, by default 5
+     jerk_threshold : int, optional
+        the threshold for jerk, by default 10.
+        if jerk is greater than (& equal to) the threshold, the color would be turned into gray
     """
 
     # make the image to export
@@ -135,6 +147,12 @@ def export_projected_frame(i_frame: int,
     line_img = np.zeros_like(frame).astype(np.uint8)
 
     to_color = np.array(to_color)
+
+    if n_jerk >= jerk_threshold:
+
+        from_color = np.array([105, 105, 105]).astype(np.uint8)
+
+        to_color = np.array([192, 192, 192]).astype(np.uint8)
 
     # get the color & thickness for each point
     for ipt in range(1, len(pts)):
@@ -158,16 +176,20 @@ def export_projected_frame(i_frame: int,
                 i_frame), export_img, [cv2.IMWRITE_JPEG_QUALITY, 100])
 
 
-def check_trajectory(poses: np.ndarray, fps: float):
-    """Check the trajectory to see if there is any large movement in the time window.
-    This quantizes the number of jerks in the time window (fps).
-
+def quantify_jerk(poses: np.ndarray, fps: float):
+    """Estimate the jerk of the trajectory in a sliding window manner.
+    This quantizes the number of jerks in each time window (10s).
     Parameters
     ----------
     poses : [[R, T]]
         the poses, each pose is the camera pose
     fps : float
         the fps of this video
+
+    Returns
+    -------
+    list[int]
+        the number of jerk in each window, shape (len(poses),)
     """
 
     trajectory = []
@@ -181,7 +203,9 @@ def check_trajectory(poses: np.ndarray, fps: float):
 
     n_jerks = []
 
-    duration = int(fps) * 10
+    window = 2
+
+    duration = int(fps) * window
 
     for idx in range(max(1, len(trajectory) - duration)):
 
@@ -195,4 +219,41 @@ def check_trajectory(poses: np.ndarray, fps: float):
         n_jerks.append(n_jerk.sum())
 
     print(
-        f'average number of jerks: {np.mean(n_jerks)} (n) per second & std : {np.std(n_jerks)} ! ')
+        f'average number of jerks in 3D trajectory : {np.mean(n_jerks)} (n) per second & standard deviation : {np.std(n_jerks)} ! ')
+
+    # padding the jerk
+    n_pads = len(poses) - len(n_jerks)
+
+    n_jerks += [n_jerks[-1]] * n_pads
+
+    return n_jerks
+
+
+def quantify_projected_jerk(projected_trajectory):
+    """Estimate the jerk of the projected trajectory
+
+    Parameters
+    ----------
+    projected_trajectory : np.ndarray, 
+        the projected trajectory, shape (N, 2)
+
+    Returns
+    -------
+    float
+        mean number of jerk 
+    """
+
+    # root mean square
+    traj = np.linalg.norm(projected_trajectory, axis=1)
+
+    # calculate jerk (3rd derivative)
+    jerk = np.gradient(np.gradient(np.gradient(traj)))
+
+    # how many times it passes through the line (y=threshold) (pos to neg)
+    threshold = 0.15
+
+    jerk = (jerk >= threshold)
+
+    mean_jerk = (jerk[1:] != jerk[:-1]).mean()
+
+    return mean_jerk
