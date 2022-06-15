@@ -93,7 +93,7 @@ def main(config: str):
 
         # export
         export_poses_and_camera_intrinsics(
-            export_hdf5_filename=hdf5_fn, poses=poses, camera_intrisics=mvo.K)
+            export_hdf5_filename=hdf5_fn, poses=poses, camera_intrinsics=mvo.K)
 
     # load the needed frames with the specified start & end time
     # note: this just loads the filenames (not the image array)
