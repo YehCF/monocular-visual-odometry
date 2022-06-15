@@ -23,7 +23,12 @@ This pipeline takes in a yaml configuration file. There is an example in `config
 
 ### Results
 ---
-- A new folder called `odometry_[video name]` is created in the same folder containing the video. Inside the folder `odometry_[video name]`, there is a generated video called `overlaid-[video name].mp4`, which is the result produced by this algorithm.
+- A new folder called `odometry_[video name]` is created in the same folder containing the video. There are 5 things in the generated folder:
+  1. `frames` : the folder, containing all the original frames from the video
+  2. `fps.txt` : the fps of the video
+  3. `mvo.hdf5` : the estimated camera poses along with camera intrinsics
+  4. `overlaid-[video name].mp4` : the video (specified between the start_time and the end_time) with estimated trajectory
+  5. `[video name]-overlaid-frames` : all the frames with estimated trajectory
 
 
 ### Demo
