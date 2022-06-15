@@ -15,8 +15,7 @@ from helpers.video_utils import load_frames
 from helpers.video_utils import get_image
 from helpers.reproject_utils import get_projected_trajectory_from_poses
 from helpers.reproject_utils import export_projected_frame
-from helpers.reproject_utils import quantify_jerk
-from helpers.reproject_utils import quantify_projected_jerk
+from helpers.reproject_utils import render_projected_trajectory
 
 
 def main(config: str):
@@ -81,11 +80,7 @@ def main(config: str):
     # poses : [[R, T], ...]
     poses = mvo.get_smoothed_poses()
 
-    # quantify jerk of the trajectory in each window (10s)
-    # this is applied in the 3d trajectory
-    # n_jerks = quantify_jerk(poses, fps)
-
-    # render & export the frame
+    # preparation for rendering the trajectory & exporting the frame
     export_directory = os.path.join(
         target_folder, f'{video_fn}-overlay-frames')
 
@@ -97,6 +92,10 @@ def main(config: str):
 
     print(f'Export overlaid frames ... ')
 
+    # for each frame
+    # - get the projected trajectory
+    # - render the projected trajectory on the frame
+    # - export the projected frame
     for i_frame in tqdm(range(len(frames) - int(fps))):
 
         end_frame = i_frame + 10 * int(fps)
@@ -104,16 +103,16 @@ def main(config: str):
         projected_trajectory, mean_jerk = get_projected_trajectory_from_poses(poses[i_frame:end_frame].copy(),
                                                                               mvo.K)
 
-        export_projected_frame(i_frame,
-                               get_image(frames[i_frame]),
-                               projected_trajectory,
-                               n_jerk=mean_jerk,
-                               export_directory=export_directory,
-                               jerk_threshold=0.1)
+        projected_frame = render_projected_trajectory(get_image(frames[i_frame]),
+                                                      projected_trajectory,
+                                                      num_jerk=mean_jerk,
+                                                      jerk_threshold=0.08)
+
+        export_projected_frame(i_frame, projected_frame, export_directory)
 
     # run ffmpeg to make the video
     os.chdir(export_directory)
-    subprocess.call(['ffmpeg', '-framerate',
+    subprocess.call(['ffmpeg', '-y', '-framerate',
                     f'{fps}', '-i', 'frame_%06d.jpg', f'../overlaid-{video_fn}.mp4'])
 
 

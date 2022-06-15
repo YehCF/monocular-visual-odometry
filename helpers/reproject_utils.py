@@ -29,12 +29,20 @@ def get_trajectory_from_poses(poses: list,
     if camera_offset is None:
 
         # simulation for the trajectory on the road
+        # this is an empirical value
+        # the camera_offset should be set to different value
+        # if it is not the same ego or camera setting
         camera_offset = np.array([[0.5], [4.0], [16.0]])
 
+    # treat the first pose as the reference
     base_vector = poses[0][0].T @ (-poses[0][1])
 
     for R, T in poses[1:]:
 
+        # for each one
+        # get the vector
+        # from the base (the first camera)
+        # to the current camera (with camera_offset)
         trajectory.append(
             (poses[0][0] @ (R.T @ (-T + camera_offset) - base_vector)).squeeze())
 
@@ -62,7 +70,7 @@ def get_projected_trajectory_from_poses(poses: list,
     bounded : bool, optional
         remove trajectory out of the image coordinate or not, by default True
     camera_offset : np.ndarray, optional
-        the offsets along x, y, z axis for the camera center, by default None
+        the offsets along x, y, z axis for the camera center (this makes the trajectory close to be on the road), by default None
 
     Returns
     -------
@@ -85,6 +93,8 @@ def get_projected_trajectory_from_poses(poses: list,
 
     if bounded:
 
+        # select the points [start, the first one out of image boundary)
+
         pt = []
 
         for i in range(projected_trajectory.shape[0]):
@@ -100,22 +110,49 @@ def get_projected_trajectory_from_poses(poses: list,
     return projected_trajectory, mean_jerk
 
 
-def export_projected_frame(i_frame: int,
-                           frame: np.ndarray,
-                           projected_trajectory: np.ndarray,
-                           n_jerk: int = -1,
-                           export_directory: str = "temp",
-                           from_color: tuple = (255, 51, 51),
-                           to_color: tuple = (255, 204, 204),
-                           from_thickness: int = 25,
-                           to_thickness: int = 5,
-                           jerk_threshold=10):
-    """export the frame with backprojected trajectory on it
+def quantify_projected_jerk(projected_trajectory, threshold=0.15):
+    """Estimate the jerk of the projected trajectory
 
     Parameters
     ----------
-    i_frame : int
-        the index of the frame
+    projected_trajectory : np.ndarray,
+        the projected trajectory, shape (N, 2)
+    threshold : float
+        the threshold on the jerk (0.15 is an empirical value), indicating
+        how many times it passes through the line (y=threshold), by default 0.15
+
+    Returns
+    -------
+    float
+        mean number of jerk
+    """
+
+    # root mean square
+    traj = np.linalg.norm(projected_trajectory, axis=1)
+
+    # calculate jerk (3rd derivative)
+    jerk = np.gradient(np.gradient(np.gradient(traj)))
+
+    jerk = (jerk >= threshold)
+
+    # look for the number of times it passes through the line (y = threshold)
+    mean_jerk = (jerk[1:] != jerk[:-1]).mean()
+
+    return mean_jerk
+
+
+def render_projected_trajectory(frame: np.ndarray,
+                                projected_trajectory: np.ndarray,
+                                num_jerk: int = -1,
+                                from_color: tuple = (255, 51, 51),
+                                to_color: tuple = (255, 204, 204),
+                                from_thickness: int = 25,
+                                to_thickness: int = 5,
+                                jerk_threshold=0.08):
+    """Draw the projected trajectory on the frame
+
+    Parameters
+    ----------
     frame : np.ndarray
         the frame, shape (height, width, 3)
     projected_trajectory : np.ndarray
@@ -132,29 +169,37 @@ def export_projected_frame(i_frame: int,
         the thickness of the trajectory, by default 25
     to_thickness : int, optional
         the thickness of the trajectory, by default 5
-     jerk_threshold : int, optional
-        the threshold for jerk, by default 10.
-        if jerk is greater than (& equal to) the threshold, the color would be turned into gray
+    jerk_threshold : float, optional
+        the threshold for num_jerk (change the color to gray if num_jerk above this threshold), by default 0.08
+
+    Returns
+    -------
+    np.ndarray
+        the frame with rendered projected trajectory (in RGB)
     """
 
     # make the image to export
-    export_img = frame.copy()
+    projected_frame = frame.copy()
 
     pts = projected_trajectory.astype(np.int32)
 
+    # by default, from deep to light pink
     from_color = np.array(from_color)
-
-    line_img = np.zeros_like(frame).astype(np.uint8)
 
     to_color = np.array(to_color)
 
-    if n_jerk >= jerk_threshold:
+    # the image for the line (trajectory) only
+    line_img = np.zeros_like(frame).astype(np.uint8)
 
+    if num_jerk >= jerk_threshold:
+
+        # from dark gray to light gray
         from_color = np.array([105, 105, 105]).astype(np.uint8)
 
         to_color = np.array([192, 192, 192]).astype(np.uint8)
 
-    # get the color & thickness for each point
+    # get the weighted color & thickness for each point
+    # draw on the line image
     for ipt in range(1, len(pts)):
 
         pt_color = (1 - (ipt / len(pts))) * from_color + \
@@ -166,94 +211,107 @@ def export_projected_frame(i_frame: int,
         cv2.polylines(line_img, [pts[ipt - 1: ipt + 1]],
                       False, pt_color, thickness=pt_tk)
 
+    # turn the line image into binary mask
     mask = (line_img > 0).astype(np.bool_)
 
-    export_img[mask] = cv2.addWeighted(export_img, 0.4, line_img, 0.6, 0)[mask]
+    # merge the projected frame and the line image
+    projected_frame[mask] = cv2.addWeighted(
+        projected_frame, 0.4, line_img, 0.6, 0)[mask]
 
-    export_img = cv2.cvtColor(export_img, cv2.COLOR_RGB2BGR)
+    return projected_frame
+
+
+def export_projected_frame(i_frame: int, projected_frame: np.ndarray, export_directory: str):
+    """export the projected frame into the specified directory in the format of frame_%06d.jpg
+
+    Parameters
+    ----------
+    i_frame : int
+        the index of the frame
+    projected_frame : np.ndarray
+        the frame with projected trajectory (in RGB)
+    export_directory : str
+        the folder to export all the frames into
+    """
+
+    # RGB to BGR
+    export_frame = cv2.cvtColor(projected_frame, cv2.COLOR_RGB2BGR)
 
     cv2.imwrite(os.path.join(export_directory, 'frame_%06d.jpg' %
-                i_frame), export_img, [cv2.IMWRITE_JPEG_QUALITY, 100])
+                i_frame), export_frame, [cv2.IMWRITE_JPEG_QUALITY, 100])
 
 
-def quantify_jerk(poses: np.ndarray, fps: float):
-    """Estimate the jerk of the trajectory in a sliding window manner.
-    This quantizes the number of jerks in each time window (10s).
-    Parameters
-    ----------
-    poses : [[R, T]]
-        the poses, each pose is the camera pose
-    fps : float
-        the fps of this video
+# def export_projected_frame(i_frame: int,
+#                            frame: np.ndarray,
+#                            projected_trajectory: np.ndarray,
+#                            n_jerk: int = -1,
+#                            export_directory: str = "temp",
+#                            from_color: tuple = (255, 51, 51),
+#                            to_color: tuple = (255, 204, 204),
+#                            from_thickness: int = 25,
+#                            to_thickness: int = 5,
+#                            jerk_threshold=10):
+#     """export the frame with backprojected trajectory on it
 
-    Returns
-    -------
-    list[int]
-        the number of jerk in each window, shape (len(poses),)
-    """
+#     Parameters
+#     ----------
+#     i_frame: int
+#         the index of the frame
+#     frame: np.ndarray
+#         the frame, shape(height, width, 3)
+#     projected_trajectory: np.ndarray
+#         the coordinates, shape(N, 2)
+#     n_jerk: int, optional
+#         the jerk of the trajectory with respect to this frame
+#     export_directory: str, optional
+#         the directory to export the overlaid frame, by default "temp"
+#     from_color: tuple, optional
+#         the color for the trajectory, by default(255, 51, 51)
+#     to_color: tuple, optional
+#         the color for the trajectory, by default(255, 204, 204)
+#     from_thickness: int, optional
+#         the thickness of the trajectory, by default 25
+#     to_thickness: int, optional
+#         the thickness of the trajectory, by default 5
+#      jerk_threshold : int, optional
+#         the threshold for jerk, by default 10.
+#         if jerk is greater than (& equal to) the threshold, the color would be turned into gray
+#     """
 
-    trajectory = []
+#     # make the image to export
+#     export_img = frame.copy()
 
-    for R, T in poses:
+#     pts = projected_trajectory.astype(np.int32)
 
-        trajectory.append(R.T @ (-T))
+#     from_color = np.array(from_color)
 
-    # (N, 3, 1) to (N, 3)
-    trajectory = np.array(trajectory)[..., 0]
+#     line_img = np.zeros_like(frame).astype(np.uint8)
 
-    n_jerks = []
+#     to_color = np.array(to_color)
 
-    window = 2
+#     if n_jerk >= jerk_threshold:
 
-    duration = int(fps) * window
+#         from_color = np.array([105, 105, 105]).astype(np.uint8)
 
-    for idx in range(max(1, len(trajectory) - duration)):
+#         to_color = np.array([192, 192, 192]).astype(np.uint8)
 
-        tj = np.linalg.norm(trajectory[idx: idx + duration], axis=1)
+#     # get the color & thickness for each point
+#     for ipt in range(1, len(pts)):
 
-        # jerk
-        jerk = np.gradient(np.gradient(np.gradient(tj))) > 0
+#         pt_color = (1 - (ipt / len(pts))) * from_color + \
+#             (ipt / len(pts)) * to_color
 
-        n_jerk = jerk[1:] != jerk[:-1]
+#         pt_tk = int((1 - (ipt / len(pts))) * from_thickness +
+#                     (ipt / len(pts)) * to_thickness)
 
-        n_jerks.append(n_jerk.sum())
+#         cv2.polylines(line_img, [pts[ipt - 1: ipt + 1]],
+#                       False, pt_color, thickness=pt_tk)
 
-    print(
-        f'average number of jerks in 3D trajectory : {np.mean(n_jerks)} (n) per second & standard deviation : {np.std(n_jerks)} ! ')
+#     mask = (line_img > 0).astype(np.bool_)
 
-    # padding the jerk
-    n_pads = len(poses) - len(n_jerks)
+#     export_img[mask] = cv2.addWeighted(export_img, 0.4, line_img, 0.6, 0)[mask]
 
-    n_jerks += [n_jerks[-1]] * n_pads
+#     export_img = cv2.cvtColor(export_img, cv2.COLOR_RGB2BGR)
 
-    return n_jerks
-
-
-def quantify_projected_jerk(projected_trajectory):
-    """Estimate the jerk of the projected trajectory
-
-    Parameters
-    ----------
-    projected_trajectory : np.ndarray, 
-        the projected trajectory, shape (N, 2)
-
-    Returns
-    -------
-    float
-        mean number of jerk 
-    """
-
-    # root mean square
-    traj = np.linalg.norm(projected_trajectory, axis=1)
-
-    # calculate jerk (3rd derivative)
-    jerk = np.gradient(np.gradient(np.gradient(traj)))
-
-    # how many times it passes through the line (y=threshold) (pos to neg)
-    threshold = 0.15
-
-    jerk = (jerk >= threshold)
-
-    mean_jerk = (jerk[1:] != jerk[:-1]).mean()
-
-    return mean_jerk
+#     cv2.imwrite(os.path.join(export_directory, 'frame_%06d.jpg' %
+#                 i_frame), export_img, [cv2.IMWRITE_JPEG_QUALITY, 100])

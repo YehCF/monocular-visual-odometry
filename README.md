@@ -14,7 +14,7 @@ This repository contains the monocular visual odometry algorithms for DTA. The m
 ### Steps
 ---
 This pipeline takes in a yaml configuration file. There is an example in `config`, called `config/default.yaml`
-- [Optional] copy the `config/default.yaml` and rename it
+- copy the `config/default.yaml` and rename it [Optional]
 - change the video path in the yaml file
 - change the camera intrinsics if needed
 - run the following command:
