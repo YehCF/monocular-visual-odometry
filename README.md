@@ -28,7 +28,7 @@ This pipeline takes in a yaml configuration file. There is an example in `config
   2. `fps.txt` : the fps of the video
   3. `mvo.hdf5` : the estimated camera poses along with camera intrinsics
   4. `overlaid-[video name].mp4` : the video (specified between the start_time and the end_time) with estimated trajectory
-  5. `[video name]-overlaid-frames` : all the frames with estimated trajectory
+  5. `[video name]-overlaid-frames` : the frames (specified between the start_time and the end_time) with estimated trajectory
 
 
 ### Demo
