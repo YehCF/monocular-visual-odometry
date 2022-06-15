@@ -1,6 +1,90 @@
 import os
 import cv2
+import h5py
 import numpy as np
+
+
+def export_poses_and_camera_intrinsics(export_hdf5_filename: str,
+                                       poses: list,
+                                       camera_intrinsics: np.ndarray):
+    """Export the poses and the camera intrinsics
+
+    Parameters
+    ----------
+    export_hdf5_filename : str
+        the hdf5 filename
+    poses : list
+        [[R, T]], camera poses
+    camera_intrisics : np.ndarray
+        the intrinsics K [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
+    """
+
+    saved_poses = np.stack([np.concatenate([R, T], axis=1)
+                           for R, T in poses]).astype(np.float64)
+
+    with h5py.File(export_hdf5_filename, 'w') as f:
+
+        f.create_dataset('pose', dtype=np.float64, data=saved_poses)
+        f.create_dataset('intrinsics', dtype=np.float64,
+                         data=camera_intrinsics.astype(np.float64))
+
+    print(
+        f'export estimated poses & camera intrinsics into {export_hdf5_filename}')
+
+
+def load_poses_and_camera_intrinsics(hdf5_filename: str,
+                                     fps: float,
+                                     start_time: int = None,
+                                     end_time: int = None):
+    """Load the estimated poses & intrinsics of this video. 
+    If the hdf5 file exists, load these two data into memory.
+
+    Parameters
+    ----------
+    hdf5_filename : str
+        the full file path of the hdf5 file containing the estimated poses & the camera intrinsics
+    fps: float
+        the fps of the video
+    start_time : int
+        the specified start time in seconds, by default None (load all)
+    end_time : int
+        the specified end time in seconds, by default None (load all)
+
+    Returns
+    -------
+    list
+        camera poses [[R, T]], R (3, 3), T (3, 1)
+    np.ndarray
+        camera intrinsics, shape (3, 3)
+    """
+
+    print(f'loading estimated poses ...')
+
+    with h5py.File(hdf5_filename, 'r') as f:
+
+        poses = f['pose']
+
+        # from (N, 3, 4) to [[R, T]]
+        poses = [[poses[i][:, :3], poses[i][:, [3]]]
+                 for i in range(poses.shape[0])]
+
+        camera_intrinsics = np.array(f['intrinsics'])
+
+    # check the start_time & end_time
+    if start_time is None:
+
+        start_time = 0
+
+    if end_time is not None:
+
+        start_fr = int(start_time * fps)
+        end_fr = int(end_time * fps)
+
+        # note the camera poses are the poses between two frames
+        # so the len(poses) should be len(frames) - 1
+        poses = poses[start_fr:end_fr-1]
+
+    return poses, camera_intrinsics
 
 
 def get_trajectory_from_poses(poses: list,
@@ -239,79 +323,3 @@ def export_projected_frame(i_frame: int, projected_frame: np.ndarray, export_dir
 
     cv2.imwrite(os.path.join(export_directory, 'frame_%06d.jpg' %
                 i_frame), export_frame, [cv2.IMWRITE_JPEG_QUALITY, 100])
-
-
-# def export_projected_frame(i_frame: int,
-#                            frame: np.ndarray,
-#                            projected_trajectory: np.ndarray,
-#                            n_jerk: int = -1,
-#                            export_directory: str = "temp",
-#                            from_color: tuple = (255, 51, 51),
-#                            to_color: tuple = (255, 204, 204),
-#                            from_thickness: int = 25,
-#                            to_thickness: int = 5,
-#                            jerk_threshold=10):
-#     """export the frame with backprojected trajectory on it
-
-#     Parameters
-#     ----------
-#     i_frame: int
-#         the index of the frame
-#     frame: np.ndarray
-#         the frame, shape(height, width, 3)
-#     projected_trajectory: np.ndarray
-#         the coordinates, shape(N, 2)
-#     n_jerk: int, optional
-#         the jerk of the trajectory with respect to this frame
-#     export_directory: str, optional
-#         the directory to export the overlaid frame, by default "temp"
-#     from_color: tuple, optional
-#         the color for the trajectory, by default(255, 51, 51)
-#     to_color: tuple, optional
-#         the color for the trajectory, by default(255, 204, 204)
-#     from_thickness: int, optional
-#         the thickness of the trajectory, by default 25
-#     to_thickness: int, optional
-#         the thickness of the trajectory, by default 5
-#      jerk_threshold : int, optional
-#         the threshold for jerk, by default 10.
-#         if jerk is greater than (& equal to) the threshold, the color would be turned into gray
-#     """
-
-#     # make the image to export
-#     export_img = frame.copy()
-
-#     pts = projected_trajectory.astype(np.int32)
-
-#     from_color = np.array(from_color)
-
-#     line_img = np.zeros_like(frame).astype(np.uint8)
-
-#     to_color = np.array(to_color)
-
-#     if n_jerk >= jerk_threshold:
-
-#         from_color = np.array([105, 105, 105]).astype(np.uint8)
-
-#         to_color = np.array([192, 192, 192]).astype(np.uint8)
-
-#     # get the color & thickness for each point
-#     for ipt in range(1, len(pts)):
-
-#         pt_color = (1 - (ipt / len(pts))) * from_color + \
-#             (ipt / len(pts)) * to_color
-
-#         pt_tk = int((1 - (ipt / len(pts))) * from_thickness +
-#                     (ipt / len(pts)) * to_thickness)
-
-#         cv2.polylines(line_img, [pts[ipt - 1: ipt + 1]],
-#                       False, pt_color, thickness=pt_tk)
-
-#     mask = (line_img > 0).astype(np.bool_)
-
-#     export_img[mask] = cv2.addWeighted(export_img, 0.4, line_img, 0.6, 0)[mask]
-
-#     export_img = cv2.cvtColor(export_img, cv2.COLOR_RGB2BGR)
-
-#     cv2.imwrite(os.path.join(export_directory, 'frame_%06d.jpg' %
-#                 i_frame), export_img, [cv2.IMWRITE_JPEG_QUALITY, 100])

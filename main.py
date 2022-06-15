@@ -14,6 +14,8 @@ from helpers.video_utils import video_to_frames
 from helpers.video_utils import load_frames
 from helpers.video_utils import get_image
 from helpers.reproject_utils import get_projected_trajectory_from_poses
+from helpers.reproject_utils import load_poses_and_camera_intrinsics
+from helpers.reproject_utils import export_poses_and_camera_intrinsics
 from helpers.reproject_utils import export_projected_frame
 from helpers.reproject_utils import render_projected_trajectory
 
@@ -60,8 +62,8 @@ def main(config: str):
         # export video to frames
         video_to_frames(video_path, target_folder)
 
-    frames, fps = load_frames(target_folder, start_time=cfg['video'].get(
-        'start_time', None), end_time=cfg['video'].get('end_time', None))
+    # load all frame filenames
+    frames, fps = load_frames(target_folder, start_time=None, end_time=None)
 
     # get image height & width
     frame_height, frame_width = get_image(frames[0]).shape[:2]
@@ -70,19 +72,50 @@ def main(config: str):
     cfg['mvo']['frame_height'] = frame_height
     cfg['mvo']['frame_width'] = frame_width
 
-    # instantiate mvo
-    mvo = FlowBasedMonocularVisualOdometry(**cfg['mvo'])
+    # check if this video is already estimated
+    # os.path.join(target_folder, 'mvo.hdf5') exists or not
+    hdf5_fn = os.path.join(target_folder, 'mvo.hdf5')
 
-    # run visual odometry
-    print(f'Estimating the camera poses ... ')
-    mvo.estimate(frames)
+    if not os.path.isfile(hdf5_fn):
 
-    # poses : [[R, T], ...]
-    poses = mvo.get_smoothed_poses()
+        # no such hdf5 file
+        # estimate the poses & export the poses along with camera intrinsics
+
+        # instantiate mvo
+        mvo = FlowBasedMonocularVisualOdometry(**cfg['mvo'])
+
+        # run visual odometry
+        print(f'Estimating the camera poses of all the frames ... ')
+        mvo.estimate(frames)
+
+        # poses : [[R, T], ...]
+        poses = mvo.get_smoothed_poses()
+
+        # export
+        export_poses_and_camera_intrinsics(
+            export_hdf5_filename=hdf5_fn, poses=poses, camera_intrisics=mvo.K)
+
+    # load the needed frames with the specified start & end time
+    # note: this just loads the filenames (not the image array)
+    frames, fps = load_frames(target_folder, start_time=cfg['video'].get(
+        'start_time', None), end_time=cfg['video'].get('end_time', None))
+
+    # load the poses & camera intrinsics from the hdf5 file
+    poses, camera_intrinsics = load_poses_and_camera_intrinsics(
+        hdf5_filename=hdf5_fn,
+        fps=fps,
+        start_time=cfg['video'].get('start_time', None),
+        end_time=cfg['video'].get('end_time', None))
+
+    # check whether the size of frames is the same with the size of the poses
+    if len(frames) != (len(poses) + 1):
+
+        raise ValueError(
+            f'The number of frames {len(frames)} does not match the number of poses  {len(poses)} + 1')
 
     # preparation for rendering the trajectory & exporting the frame
     export_directory = os.path.join(
-        target_folder, f'{video_fn}-overlay-frames')
+        target_folder, f'{video_fn}-overlaid-frames')
 
     if os.path.isdir(export_directory):
 
@@ -101,7 +134,7 @@ def main(config: str):
         end_frame = i_frame + 10 * int(fps)
 
         projected_trajectory, mean_jerk = get_projected_trajectory_from_poses(poses[i_frame:end_frame].copy(),
-                                                                              mvo.K)
+                                                                              camera_intrinsics)
 
         projected_frame = render_projected_trajectory(get_image(frames[i_frame]),
                                                       projected_trajectory,

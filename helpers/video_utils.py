@@ -4,6 +4,35 @@ import cv2
 from tqdm import tqdm
 
 
+def load_fps(fps_file):
+    """load the fps from the exported txt file
+
+    Parameters
+    ----------
+    fps_file : str
+        the txt file containing the fps of this video
+
+    Returns
+    -------
+    float
+        fps
+    """
+
+    fps = None
+
+    with open(fps_file, 'r') as f:
+
+        fps = float(f.read())
+
+        print(f'Video - fps: {fps}')
+
+    # no fps.txt in the folder => probably haven't exported yet
+    if not fps:
+        raise ValueError('No fps is found!')
+
+    return fps
+
+
 def video_to_frames(video_path: str, export_directory: str = None):
     """ Export video to frames, which creates a folder ('frames') in the same folder containing this video.
     Moreover, a txt file containing the frame rate is generated in the same folder.
@@ -74,19 +103,9 @@ def load_frames(video_folder: str, start_time: int, end_time: int):
     """
 
     # get frame rate
-    fr_file = os.path.join(video_folder, 'fps.txt')
+    fps_file = os.path.join(video_folder, 'fps.txt')
 
-    fps = None
-
-    with open(fr_file, 'r') as f:
-
-        fps = float(f.read())
-
-        print(f'Video - {video_folder.split("/")[-1]} - fps: {fps}')
-
-    # no fps.txt in the folder => probably haven't exported yet
-    if not fps:
-        raise ValueError('No fps is found!')
+    fps = load_fps(fps_file)
 
     # check the start_time & end_time
     if start_time is None:
