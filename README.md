@@ -3,11 +3,17 @@ This repository contains the monocular visual odometry algorithms for DTA. The m
 
 ### Install Conda Environment
 ---
-
+- install miniconda
+- create environment
+  - $conda create --name mvo python=3.8
+- install requirements
+  - $pip install -r requirements.txt
 
 ### Video Preparation
 ---
 * Select a video (.mp4) to process
+  * It should be a video from the camera mounted (facing front) in a car
+  * The camera intrinsics should be known and specified in configuration yaml
 
 ### Steps
 ---
