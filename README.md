@@ -1,11 +1,9 @@
 # monocular-visual-odometry
 This repository contains the monocular visual odometry algorithms for DTA. The main task of this repo is to estimate the ego trajectory with respective to the first frame of the video and then render the future trajectory onto the reference frames, which helps annotators in DTA tasks.
 
-### Install
+### Install Conda Environment
 ---
-* `$git@github.com:PerceptiveAutomata/monocular-visual-odometry.git`
-* `$conda activate perceptive3`
-  *  no additional packages needed beyond perceptive3
+
 
 ### Video Preparation
 ---
@@ -33,7 +31,7 @@ This pipeline takes in a yaml configuration file. There is an example in `config
 
 ### Demo
 ---
-- The examples can be found [here](https://drive.google.com/drive/u/3/folders/1jgyRffiWhCtqDzBIIqBxWkthTDX22r0A)
+- The examples can be found [here](https://drive.google.com/file/d/1137qSwsFotPFxX5QmsjZUkXYqjOdElxw/view?usp=sharing)
 
 
 ### Test Cases
