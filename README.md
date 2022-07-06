@@ -1,5 +1,5 @@
 # monocular-visual-odometry
-This repository contains the monocular visual odometry algorithms for DTA. The main task of this repo is to estimate the ego trajectory with respective to the first frame of the video and then render the future trajectory onto the reference frames, which helps annotators in DTA tasks.
+This repository contains the monocular visual odometry algorithms for rendering the camera trajectory on the provided video. The main task of this repo is to estimate the ego trajectory with respective to the first frame of the video and then render the future trajectory onto the reference frames, which helps to annotate the behaviors of self-driving cars.
 
 ### Install Conda Environment
 ---
