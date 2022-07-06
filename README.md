@@ -8,6 +8,7 @@ This repository contains the monocular visual odometry algorithms for DTA. The m
   - $conda create --name mvo python=3.8
 - install requirements
   - $pip install -r requirements.txt
+- install ffmpeg in your OS
 
 ### Video Preparation
 ---
